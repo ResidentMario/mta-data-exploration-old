@@ -32,7 +32,7 @@ def parse_gtfs_into_action_log(feed):
     feed, gtfs_realtime_pb2.FeedMessage object
         The feed being processed.
     """
-    action_log = pd.DataFrame(columns=['trip_id', 'start_date', 'route_id', 'action', 'stop_id', 'timestamp'])
+    action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'timestamp'])
 
     # In the MTA case, alerts are provided at the end of the feed. Isolate those from the rest of the entries by
     # finding the breakpoint at which they appear. This is a harder process than one would expect due to the way that
@@ -59,11 +59,11 @@ def parse_gtfs_into_action_log(feed):
             pass
         else:
             # This is a trip update message.
+            # action_log = action_log.append(parse_message_into_action_log())
 
             # The base of the log entry is the same for all possible entries.
             base = {
                 'trip_id': message.trip_update.trip.trip_id,
-                'start_date': message.trip_update.trip.start_date,
                 'route_id': message.trip_update.trip.route_id,
                 'action': None,
                 'stop_id': None,
@@ -72,7 +72,10 @@ def parse_gtfs_into_action_log(feed):
 
             # To understand what this message means, we need to read information from the vehicle update also.
             # First, we need to verify that there is a vehicle update present at all.
-            has_associated_vehicle_update = feed.entity[i + 1].trip_update.trip.route_id == ''
+            if alerts and i != alert_breakpoint - 1:
+                has_associated_vehicle_update = feed.entity[i + 1].trip_update.trip.route_id == ''
+            else:
+                has_associated_vehicle_update = False
             trip_in_progress = has_associated_vehicle_update
 
             if has_associated_vehicle_update:
@@ -82,6 +85,7 @@ def parse_gtfs_into_action_log(feed):
             n_stops = len(message.trip_update.stop_time_update)
 
             for s_i, stop_time_update in enumerate(message.trip_update.stop_time_update):
+
                 # If we do have one, we may continue.
                 # Weirdness with detecting if we have arrival/departure times.
                 has_arrival_time = str(stop_time_update.arrival) != ''
@@ -100,7 +104,7 @@ def parse_gtfs_into_action_log(feed):
                     struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.departure.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                 # If the trip is not in progress, and we are not at the first index nor the last index, then we will
                 # have both types to account for.
@@ -113,14 +117,14 @@ def parse_gtfs_into_action_log(feed):
                     struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                     # Departure.
                     struct = base.copy()
                     struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.departure.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                 # If the trip is in progress, and we are at the last index, then we will have only an arrival to
                 # account for.
@@ -132,7 +136,7 @@ def parse_gtfs_into_action_log(feed):
                     struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                 # If the trip is in progress, we have an arrival time, and we have an INCOMING_AT or IN_TRANSIT_TO
                 # vehicle update, and the vehicle update and stop update in question are talking about the same
@@ -146,14 +150,14 @@ def parse_gtfs_into_action_log(feed):
                     struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                     # Departure.
                     struct = base.copy()
                     struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.departure.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                 # If the trip is in progress, we are STOPPED_AT, and the vehicle update and stop update in question are
                 # talking about the same station, then we should only have an arrival time, and that arrival time
@@ -166,47 +170,55 @@ def parse_gtfs_into_action_log(feed):
                     struct.update({'action': 'ARRIVED_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
-                # If the trip is in progress the vehicle update and stop update in question are not talking about the
-                # same station, and the message is not the last one in the sequence, then we have a forward estimate
-                # on when this train will arrive at some other station further down the line (but not at the very end).
+                # If the trip is in progress, the vehicle update and stop update in question are not talking about the
+                # same station, and the message is not the last one in the sequence, and both an arrival and
+                # departure are present in the struct, then we have a forward estimate on when this train will arrive
+                # at some other station further down the line (but not at the very end).
                 #
                 # We actually do the same thing in this case as in the first case, but to keep the logic neat let's
                 # just replicate the code.
-                if trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1:
-                    assert has_arrival_time
+                if trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and has_departure_time:
                     try:
-                        assert has_departure_time
+                        assert has_arrival_time
                     except AssertionError:
                         import pdb; pdb.set_trace()
+                        pass
 
                     # Arrival.
                     struct = base.copy()
                     struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
                     # Departure.
                     struct = base.copy()
                     struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.departure.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
+
+                # If the trip is in progress the vehicle update and stop update in question are not talking about the
+                # same station, and the message is not the last one in the sequence, and only an arrival is present in
+                # the struct, then we have a forward estimate on when this train will arrive at some other station
+                # further down the line (but not at the very end), but at which it *will not stop*. In other words,
+                # this indicates that this train is going to skip this stop in its service!
+                #
+                # We actually do the same thing in this case as in the first case, but to keep the logic neat let's
+                # just replicate the code.
 
                 # If the vehicle update and stop update in question are not talking about the same station,
                 # and the message is the last one in the sequence, then we have a forward estimate on when
                 # this train will arrive at its endpoint station.
-                if trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1:
+                if trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1 and not has_departure_time:
                     assert has_arrival_time
-                    assert not has_departure_time
 
-                    # Arrival.
                     struct = base.copy()
-                    struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
+                    struct.update({'action': 'EXPECTED_TO_SKIP',
                                    'stop_id': stop_time_update.stop_id,
                                    'timestamp': stop_time_update.arrival.time})
-                    action_log.append(struct, ignore_index=True)
+                    action_log = action_log.append(struct, ignore_index=True)
 
     return action_log
