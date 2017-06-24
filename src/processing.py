@@ -152,7 +152,15 @@ def parse_message_into_action_log(message, vehicle_update):
         # If we are at the last index, then we will have only an arrival to account for.
         elif n_stops == s_i + 1:
             assert has_arrival_time
-            assert not has_departure_time
+            try:
+                assert not has_departure_time
+            except AssertionError:
+                # This isn't supposed to happen, because it means that the train is question is being made out as
+                # though it is departing to some next station on the line when there are no other stations on the
+                # line to depart to. However, this appears to occur in some cases. For example, an incidence of this
+                # occurs in the 2014-09-17-09-36 GTFS-Realtime archive, where a 4 train departs from a Utica Avenue
+                # end-stop.
+                pass
 
             struct = base.copy()
             struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
