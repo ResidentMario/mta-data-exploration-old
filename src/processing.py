@@ -95,8 +95,15 @@ def parse_message_into_action_log(message, vehicle_update):
 
     action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'timestamp'])
 
+    # Hash map for current status enums to current status strings.
+    vehicle_status_dict = {
+        0: 'INCOMING_AT',
+        1: 'STOPPED_AT',
+        2: 'IN_TRANSIT_TO'
+    }
+
     if trip_in_progress:
-        vehicle_status = vehicle_update.vehicle.current_status
+        vehicle_status = vehicle_status_dict[vehicle_update.vehicle.current_status]
         vehicle_status_poi = vehicle_update.vehicle.stop_id
     n_stops = len(message.trip_update.stop_time_update)
 
@@ -124,7 +131,7 @@ def parse_message_into_action_log(message, vehicle_update):
 
         # If the trip is not in progress, and we are not at the first index nor the last index, then we will
         # have both types to account for.
-        if not trip_in_progress and s_i != 0 and n_stops != s_i + 1:
+        elif not trip_in_progress and s_i != 0 and n_stops != s_i + 1:
             assert has_arrival_time
             assert has_departure_time
 
@@ -142,9 +149,8 @@ def parse_message_into_action_log(message, vehicle_update):
                            'timestamp': stop_time_update.departure.time})
             action_log = action_log.append(struct, ignore_index=True)
 
-        # If the trip is in progress, and we are at the last index, then we will have only an arrival to
-        # account for.
-        if not trip_in_progress and n_stops == s_i + 1:
+        # If we are at the last index, then we will have only an arrival to account for.
+        elif n_stops == s_i + 1:
             assert has_arrival_time
             assert not has_departure_time
 
@@ -157,50 +163,12 @@ def parse_message_into_action_log(message, vehicle_update):
         # If the trip is in progress, we have an arrival time, and we have an INCOMING_AT or IN_TRANSIT_TO
         # vehicle update, and the vehicle update and stop update in question are talking about the same
         # station, then we know that we are en route to a station, but haven't arrived there yet.
-        if trip_in_progress and vehicle_status in ['INCOMING_AT', 'IN_TRANSIT_TO'] and stop_is_next_stop:
-            assert has_arrival_time
-            assert has_departure_time
-
-            # Arrival.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'timestamp': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
-
-            # Departure.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'timestamp': stop_time_update.departure.time})
-            action_log = action_log.append(struct, ignore_index=True)
-
-        # If the trip is in progress, we are STOPPED_AT, and the vehicle update and stop update in question are
-        # talking about the same station, then we should only have an arrival time, and that arrival time
-        # should be the time at which this train arrived at this station.
-        if trip_in_progress and vehicle_status == 'STOPPED_AT' and stop_is_next_stop:
-            assert has_arrival_time
-            assert not has_departure_time
-
-            struct = base.copy()
-            struct.update({'action': 'ARRIVED_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'timestamp': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
-
-        # If the trip is in progress, the vehicle update and stop update in question are not talking about the
-        # same station, and the message is not the last one in the sequence, and both an arrival and
-        # departure are present in the struct, then we have a forward estimate on when this train will arrive
-        # at some other station further down the line (but not at the very end).
-        #
-        # We actually do the same thing in this case as in the first case, but to keep the logic neat let's
-        # just replicate the code.
-        if trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and has_departure_time:
+        elif trip_in_progress and vehicle_status in ['INCOMING_AT', 'IN_TRANSIT_TO'] and stop_is_next_stop:
             try:
                 assert has_arrival_time
-            except AssertionError:
-                import pdb;
-                pdb.set_trace()
+                assert has_departure_time
+            except:
+                import pdb; pdb.set_trace()
                 pass
 
             # Arrival.
@@ -217,19 +185,72 @@ def parse_message_into_action_log(message, vehicle_update):
                            'timestamp': stop_time_update.departure.time})
             action_log = action_log.append(struct, ignore_index=True)
 
+        # If the trip is in progress, we are STOPPED_AT, we are at the first station in the line, and the vehicle
+        # update and stop update in question are talking about the same station, then we are currently stopped at the
+        #  first station in the line, and will only have a departure time.
+        elif trip_in_progress and vehicle_status == 'STOPPED_AT' and s_i == 0 and not has_arrival_time:
+            assert has_departure_time
+
+            struct = base.copy()
+            struct.update({'action': 'STOPPED_AT',
+                           'stop_id': stop_time_update.stop_id,
+                           'timestamp': stop_time_update.arrival.time})
+            action_log = action_log.append(struct, ignore_index=True)
+
+        # If the trip is in progress, we are STOPPED_AT, and the vehicle update and stop update in question are
+        # talking about the same station, then that arrival time should be the time at which this train arrived at
+        # this station.
+        elif trip_in_progress and vehicle_status == 'STOPPED_AT' and stop_is_next_stop:
+            assert has_arrival_time
+            assert has_departure_time
+
+            struct = base.copy()
+            struct.update({'action': 'STOPPED_AT',
+                           'stop_id': stop_time_update.stop_id,
+                           'timestamp': stop_time_update.arrival.time})
+            action_log = action_log.append(struct, ignore_index=True)
+
+        # If the trip is in progress, the vehicle update and stop update in question are not talking about the
+        # same station, and the message is not the last one in the sequence, and both an arrival and
+        # departure are present in the struct, then we have a forward estimate on when this train will arrive
+        # at some other station further down the line (but not at the very end).
+        #
+        # We actually do the same thing in this case as in the first case, but to keep the logic neat let's
+        # just replicate the code.
+        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and has_departure_time:
+            assert has_arrival_time
+
+            # Arrival.
+            struct = base.copy()
+            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
+                           'stop_id': stop_time_update.stop_id,
+                           'timestamp': stop_time_update.arrival.time})
+            action_log = action_log.append(struct, ignore_index=True)
+
+            # Departure.
+            struct = base.copy()
+            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
+                           'stop_id': stop_time_update.stop_id,
+                           'timestamp': stop_time_update.departure.time})
+            action_log = action_log.append(struct, ignore_index=True)
+
+        # If the vehicle update and stop update in question are not talking about the same station,
+        # and the message is the last one in the sequence, then we have a forward estimate on when
+        # this train will arrive at its endpoint station.
+        elif trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1 and not has_departure_time:
+            assert has_arrival_time
+
+            struct.update({'action': 'EXPECTED_TO_END_AT',
+                           'stop_id': stop_time_update.stop_id,
+                           'timestamp': stop_time_update.arrival.time})
+            action_log = action_log.append(struct, ignore_index=True)
+
         # If the trip is in progress the vehicle update and stop update in question are not talking about the
         # same station, and the message is not the last one in the sequence, and only an arrival is present in
         # the struct, then we have a forward estimate on when this train will arrive at some other station
         # further down the line (but not at the very end), but at which it *will not stop*. In other words,
         # this indicates that this train is going to skip this stop in its service!
-        #
-        # We actually do the same thing in this case as in the first case, but to keep the logic neat let's
-        # just replicate the code.
-
-        # If the vehicle update and stop update in question are not talking about the same station,
-        # and the message is the last one in the sequence, then we have a forward estimate on when
-        # this train will arrive at its endpoint station.
-        if trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1 and not has_departure_time:
+        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_departure_time:
             assert has_arrival_time
 
             struct = base.copy()
@@ -237,5 +258,9 @@ def parse_message_into_action_log(message, vehicle_update):
                            'stop_id': stop_time_update.stop_id,
                            'timestamp': stop_time_update.arrival.time})
             action_log = action_log.append(struct, ignore_index=True)
+
+        else:
+            import pdb; pdb.set_trace()
+            raise ValueError
 
     return action_log
