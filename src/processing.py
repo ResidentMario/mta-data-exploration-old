@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31'):
+def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31', raw=True):
     """
     Returns archived GTFS data for a particular time_assigned.
 
@@ -13,14 +13,20 @@ def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31')
     timestamp: str
         The time_assigned associated with the data rollup. The files are time stamped at 01, 06, 11, 16, 21, 26, 31, 36,
         41, 46, 51, and 56 minutes after the hour, so only these times will be valid.
+    raw: bool
+        Whether or not to return the raw requests object instead of the parsed GRFS-R record. Used in testing.
     """
     import requests
     from google.transit import gtfs_realtime_pb2
 
-    feed = gtfs_realtime_pb2.FeedMessage()
     response = requests.get("https://datamine-history.s3.amazonaws.com/{0}-{1}".format(kind, timestamp))
-    feed.ParseFromString(response.content)
-    return feed
+
+    if raw:
+        return response.content
+    else:
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.ParseFromString(response.content)
+        return feed
 
 
 def parse_gtfs_into_action_log(feed, information_time):
@@ -87,7 +93,6 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
 
     This method is called by parse_gtfs_into_action_log in a loop in order to get the complete action log.
     """
-    # TODO: Unit tests.
     # If we are passed a vehicle update, then the trip must already be in progress.
     trip_in_progress = bool(vehicle_update)
 
@@ -273,9 +278,11 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             action_log = action_log.append(struct, ignore_index=True)
 
         else:
-            import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace()  # useful for debugging
             raise ValueError
 
+    # TODO: Speed-ups, if necessary. Probably by working around using append directly.
+    # TODO: Find out why the EXPECTED_TO_END_AT case never gets hit (the loop hits a case earlier in the stack).
     return action_log
 
 
