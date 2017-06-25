@@ -353,13 +353,15 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
         future_stop.update({
             'action': 'EN_ROUTE_TO',
             'minimum_time': current_information_time,
-            'maximum_time': None,
+            'maximum_time': float('nan'),  # to avoid actual-None insertion (!)
             'stop_id': remaining_stop,
             'latest_information_time': current_information_time
         })
         trip = trip.append(future_stop, ignore_index=True)
 
     return trip
+
+# TODO: Methodology for merging a set of fresh tripwise action logs onto an existing trip log (if necessary).
 
 
 def mta_archival_time_to_unix_timestamp(mta_archival_time):
@@ -424,3 +426,7 @@ def synthesize_station_lists(list_a, list_b):
         #  train probably cancelled those stations, but it may have stopped there in the meantime also. Add all
         # stations in the first list and all stations in the second list together.
         return list_a + list_b
+
+
+def create_tripwise():
+    pass
