@@ -291,29 +291,74 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     Given a list of action logs associated with a particular trip, returns the result of their merger: a single trip
     log.
     """
+    # To understand what went on during a trip, we only need to have a list of touched stops, the rows corresponding
+    # with the first action in each observation's action sublog, and the time that has passed in between the sublog
+    # entries.
     all_data = pd.concat(tripwise_action_logs)
-    trip = all_data
-    # trip = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned', 'information_time'])
-    #
-    # # Determine what to push to trip and how on a row-by-row basis.
-    # for ind, row in all_data.iterrows():
-    #     station = row['stop_id']
-    #
-    #     # If we have no information on this station present, append it to our trip.
-    #     if station not in trip['stop_id'].values:
-    #         trip = trip.append(row)
-    #     # Otherwise, we have more work to do.
-    #     else:
-    #         preexisting_information = trip[trip['stop_id'] == station]
-    #         action = row['action']
-    #
-    #         # If our action is an expectation of an arrival, and such an arrival already exists in the
-    #         arriving = 'EXPECTED_TO_ARRIVE_AT'
-    #         if action == arriving and arriving in preexisting_information['action']:
-    #             ind = preexisting_information[preexisting_information['action'] == arriving].index[0]
-    #             trip[ind] = row
-    #
-    # TODO: Build this out.
+    key_data = all_data.groupby('information_time').first().reset_index()
+    current_information_time = None
+    remaining_stops = extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
+    trip = pd.DataFrame()
+
+    base = {
+        'trip_id': all_data.iloc[0]['trip_id'],
+        'route_id': all_data.iloc[0]['route_id'],
+        'action': None,
+        'stop_id': None,
+        'minimum_time': None,
+        'maximum_time': None,
+        'latest_information_time': None,
+    }
+
+    for ind, row in key_data.iterrows():
+
+        previous_information_time = current_information_time
+        current_information_time = row['information_time']
+        current_stop = row['stop_id']
+
+        i_del = 0
+        for remaining_stop in remaining_stops:
+            if remaining_stop != current_stop:
+                skipped_stop = base.copy()
+                skipped_stop.update({
+                    'action': 'STOPPED_OR_SKIPPED',
+                    'minimum_time': previous_information_time,
+                    'maximum_time': current_information_time,
+                    'stop_id': remaining_stop,
+                    'latest_information_time': current_information_time
+                })
+                trip = trip.append(skipped_stop, ignore_index=True)
+                i_del += 1
+            else:
+                if row['action'] == 'STOPPED_AT':
+                    stopped_stop = base.copy()
+                    stopped_stop.update({
+                        'action': 'STOPPED_AT',
+                        'minimum_time': current_information_time,
+                        'maximum_time': current_information_time,
+                        'stop_id': row['stop_id'],
+                        'latest_information_time': current_information_time
+                    })
+                    trip = trip.append(stopped_stop, ignore_index=True)
+                    i_del += 1
+                    break
+                else:
+                    # We have learned nothing.
+                    break
+        remaining_stops = remaining_stops[i_del:]
+
+    # Any stops left over we haven't arrived at yet.
+    for remaining_stop in remaining_stops:
+        future_stop = base.copy()
+        future_stop.update({
+            'action': 'EN_ROUTE_TO',
+            'minimum_time': current_information_time,
+            'maximum_time': None,
+            'stop_id': remaining_stop,
+            'latest_information_time': current_information_time
+        })
+        trip = trip.append(future_stop, ignore_index=True)
+
     return trip
 
 
