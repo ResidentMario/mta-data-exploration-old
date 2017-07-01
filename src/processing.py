@@ -1,7 +1,8 @@
 import pandas as pd
+from collections import defaultdict
 
 
-def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31', raw=True):
+def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31', raw=False):
     """
     Returns archived GTFS data for a particular time_assigned.
 
@@ -45,8 +46,8 @@ def parse_gtfs_into_action_log(feed, information_time):
     # the library is designed, hence the weirdness here.
     alert_breakpoint = None
 
-    for i, entity in enumerate(reversed(feed.entity)):
-        if str(entity.alert) == '':
+    for i, message in enumerate(reversed(feed.entity)):
+        if is_alert(message):
             alert_breakpoint = len(feed.entity) - i
             break
 
@@ -58,7 +59,7 @@ def parse_gtfs_into_action_log(feed, information_time):
     for i in range(0, trips_breakpoint):
         message = feed.entity[i]
 
-        if message.trip_update.trip.route_id == '':
+        if is_vehicle_update(message):
             # This is a vehicle update message.
             # Since vehicle update messages always appear after trip update messages (is this true?),
             # we won't process them separately.
@@ -69,7 +70,7 @@ def parse_gtfs_into_action_log(feed, information_time):
             # To understand what this message means, we need to read information from the vehicle update also.
             # First, we need to verify that there is a vehicle update present at all.
             if alerts and i != alert_breakpoint - 1:
-                has_associated_vehicle_update = feed.entity[i + 1].trip_update.trip.route_id == ''
+                has_associated_vehicle_update = is_vehicle_update(feed.entity[i + 1])
             else:
                 has_associated_vehicle_update = False
             trip_in_progress = has_associated_vehicle_update
@@ -359,6 +360,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
         })
         trip = trip.append(future_stop, ignore_index=True)
 
+    # TODO: tests (test_trip_logging.py).
     return trip
 
 # TODO: Methodology for merging a set of fresh tripwise action logs onto an existing trip log (if necessary).
@@ -428,5 +430,38 @@ def synthesize_station_lists(list_a, list_b):
         return list_a + list_b
 
 
-def create_tripwise():
-    pass
+def is_vehicle_update(message):
+    """Helper method that determines whether or not a message is a vehicle update."""
+    return str(message.trip_update.trip.route_id) == ''
+
+
+def is_alert(message):
+    """Helper method that determines whether or not a message is an alert."""
+    return str(message.alert) != ''
+
+
+def is_trip_update(message):
+    """Helper method that determines whether or not a message is a trip update."""
+    return not is_vehicle_update(message) and not is_alert(message)
+
+
+def sort_feed_messages_by_trip_id(feeds):
+    """
+    Takes a list of feeds. Returns a hash table of non-alert messages in those feeds corresponding with particular
+    trips.
+
+    Alerts are excluded because the way things are, it's better to leave incorporating them in downstream of when
+    this method is used.
+    """
+    message_table = defaultdict(list)
+    for feed in feeds:
+        for message in feed.entity:
+            if is_alert(message):
+                print("Alert!")
+                continue
+            elif is_trip_update(message):
+                trip_id = message.trip_update.trip.trip_id
+            else:  # is_vehicle_update
+                trip_id = message.vehicle.trip.trip_id
+            message_table[trip_id].append(message)
+    return message_table
