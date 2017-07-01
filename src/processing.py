@@ -1,5 +1,6 @@
 import pandas as pd
-from collections import defaultdict
+import collections
+import itertools
 
 
 def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31', raw=False):
@@ -39,6 +40,13 @@ def parse_gtfs_into_action_log(feed, information_time):
     feed, gtfs_realtime_pb2.FeedMessage object
         The feed being processed.
     """
+    return parse_message_list_into_action_log(feed.entity, information_time)
+
+
+def parse_message_list_into_action_log(messages, information_time):
+    """
+    Parses a list of messages into a single pandas.DataFrame
+    """
     action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned'])
 
     # In the MTA case, alerts are provided at the end of the feed. Isolate those from the rest of the entries by
@@ -46,18 +54,18 @@ def parse_gtfs_into_action_log(feed, information_time):
     # the library is designed, hence the weirdness here.
     alert_breakpoint = None
 
-    for i, message in enumerate(reversed(feed.entity)):
+    for i, message in enumerate(reversed(messages)):
         if is_alert(message):
-            alert_breakpoint = len(feed.entity) - i
+            alert_breakpoint = len(messages) - i
             break
 
-    alerts = feed.entity[alert_breakpoint:] if alert_breakpoint else []
+    alerts = messages[alert_breakpoint:] if alert_breakpoint else []
 
     # The rest of the entries are Trip Alert and Train Station entities.
-    trips_breakpoint = alert_breakpoint if alert_breakpoint else len(feed.entity)
+    trips_breakpoint = alert_breakpoint if alert_breakpoint else len(messages)
 
     for i in range(0, trips_breakpoint):
-        message = feed.entity[i]
+        message = messages[i]
 
         if is_vehicle_update(message):
             # This is a vehicle update message.
@@ -69,15 +77,17 @@ def parse_gtfs_into_action_log(feed, information_time):
 
             # To understand what this message means, we need to read information from the vehicle update also.
             # First, we need to verify that there is a vehicle update present at all.
-            if alerts and i != alert_breakpoint - 1:
-                has_associated_vehicle_update = is_vehicle_update(feed.entity[i + 1])
+            if i == len(messages) - 1:
+                has_associated_vehicle_update = False
+            elif (alerts and i != alert_breakpoint - 1) or not alerts:
+                has_associated_vehicle_update = is_vehicle_update(messages[i + 1])
             else:
                 has_associated_vehicle_update = False
             trip_in_progress = has_associated_vehicle_update
 
             # Pass reading the actions into a helper function.
             if trip_in_progress:
-                trip_update = feed.entity[i + 1]
+                trip_update = messages[i + 1]
                 actions = parse_message_into_action_log(message, trip_update, information_time)
             else:
                 actions = parse_message_into_action_log(message, None, information_time)
@@ -89,10 +99,10 @@ def parse_gtfs_into_action_log(feed, information_time):
 
 def parse_message_into_action_log(message, vehicle_update, information_time):
     """
-    Parses the trip update and vehicle update messages (f there is one; may be None) for a particular trip into an
+    Parses the trip update and vehicle update messages (if there is one; may be None) for a particular trip into an
     action log.
 
-    This method is called by parse_gtfs_into_action_log in a loop in order to get the complete action log.
+    This method is called by parse_message_list_into_action_log in a loop in order to get the complete action log.
     """
     # If we are passed a vehicle update, then the trip must already be in progress.
     trip_in_progress = bool(vehicle_update)
@@ -135,7 +145,10 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         # If the trip is not in progress, and we are at the first index, then we will have only a planned
         # departure to account for.
         if not trip_in_progress and s_i == 0:
-            assert not has_arrival_time
+            try:
+                assert not has_arrival_time
+            except AssertionError:
+                import pdb; pdb.set_trace()
             assert has_departure_time
 
             struct = base.copy()
@@ -295,11 +308,15 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     # To understand what went on during a trip, we only need to have a list of touched stops, the rows corresponding
     # with the first action in each observation's action sublog, and the time that has passed in between the sublog
     # entries.
+
+    trip = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'minimum_time', 'maximum_time',
+                                 'latest_information_time'])
+
     all_data = pd.concat(tripwise_action_logs)
+
     key_data = all_data.groupby('information_time').first().reset_index()
     current_information_time = None
     remaining_stops = extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
-    trip = pd.DataFrame()
 
     base = {
         'trip_id': all_data.iloc[0]['trip_id'],
@@ -445,23 +462,68 @@ def is_trip_update(message):
     return not is_vehicle_update(message) and not is_alert(message)
 
 
-def sort_feed_messages_by_trip_id(feeds):
+def sort_feed_messages_by_trip_id(feed):
     """
-    Takes a list of feeds. Returns a hash table of non-alert messages in those feeds corresponding with particular
-    trips.
+    Takes a feed. Returns a hash table of non-alert messages in that feed corresponding with particular trips.
 
     Alerts are excluded because the way things are, it's better to leave incorporating them in downstream of when
     this method is used.
     """
-    message_table = defaultdict(list)
-    for feed in feeds:
-        for message in feed.entity:
-            if is_alert(message):
-                print("Alert!")
-                continue
-            elif is_trip_update(message):
-                trip_id = message.trip_update.trip.trip_id
-            else:  # is_vehicle_update
-                trip_id = message.vehicle.trip.trip_id
-            message_table[trip_id].append(message)
+    message_table = collections.defaultdict(list)
+    for message in feed.entity:
+        if is_alert(message):
+            continue
+        elif is_trip_update(message):
+            trip_id = message.trip_update.trip.trip_id
+        else:  # is_vehicle_update
+            trip_id = message.vehicle.trip.trip_id
+        message_table[trip_id].append(message)
     return message_table
+
+
+def parse_feeds_into_trip_logs(feeds, information_dates):
+    """
+    Given a list of feeds and a list of information dates, returns a hash table of trip logs associated with each
+    trip mentioned in those feeds.
+
+    The ultimate method for which all of the above was developed.
+    """
+    message_tables = [sort_feed_messages_by_trip_id(feed) for feed in feeds]
+    trip_ids = set(itertools.chain(*[table.keys() for table in message_tables]))
+
+    ret = dict()
+
+    for trip_id in trip_ids:
+        actions_logs = []
+        trip_began = False
+        trip_terminated = False
+        trip_terminated_time = None
+
+        for i, table in enumerate(message_tables):
+            # Is the trip present in this table at all?
+            if not table[trip_id]:
+                # If the trip hasn't been planned yet, and will simply appear in a later trip update, do nothing.
+                if not trip_began:
+                    pass
+
+                # If the trip has been planned already, and doesn't exist in the current table, then it must have
+                # been removed. This implies that this trip terminated in the interceding time. Store this
+                # information for later.
+                else:
+                    trip_terminated = True
+                    trip_terminated_time = information_dates[i]
+
+                continue
+
+            action_log = parse_message_list_into_action_log(table[trip_id], information_dates[i])
+            actions_logs.append(action_log)
+        trip_log = parse_tripwise_action_logs_into_trip_log(actions_logs)
+        ret[trip_id] = trip_log
+
+        # If the trip was terminated sometime in the course of these feeds, update the trip log accordingly.
+        # TODO: Test that this works.
+        if trip_terminated:
+            ret[trip_id]['action'].replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED', inplace=True)
+            ret[trip_id]['maximum_time'].fillna(trip_terminated_time, inplace=True)
+
+    return ret
