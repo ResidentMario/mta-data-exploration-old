@@ -48,7 +48,8 @@ def parse_message_list_into_action_log(messages, information_time):
     """
     Parses a list of messages into a single pandas.DataFrame
     """
-    action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned'])
+    actions_list = []
+    # action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned'])
 
     # In the MTA case, alerts are provided at the end of the feed. Isolate those from the rest of the entries by
     # finding the breakpoint at which they appear. This is a harder process than one would expect due to the way that
@@ -93,9 +94,9 @@ def parse_message_list_into_action_log(messages, information_time):
             else:
                 actions = parse_message_into_action_log(message, None, information_time)
 
-            action_log = action_log.append(actions)
+            actions_list.append(actions)
 
-    return action_log
+    return pd.concat(actions_list)
 
 
 def parse_message_into_action_log(message, vehicle_update, information_time):
@@ -112,14 +113,6 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
     # The entries are, in order of key: trip_id, route_id, and information_time.
     # Each line will additionally contain an action, stop_id, and time_assigned.
     base = np.array([message.trip_update.trip.trip_id, message.trip_update.trip.route_id, information_time])
-    # base = {
-    #     'trip_id': message.trip_update.trip.trip_id,
-    #     'route_id': message.trip_update.trip.route_id,
-    #     'action': None,
-    #     'stop_id': None,
-    #     'time_assigned': None,
-    #     'information_time': information_time
-    # }
 
     # Hash map for current status enums to current status strings.
     vehicle_status_dict = {
@@ -303,24 +296,14 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     # with the first action in each observation's action sublog, and the time that has passed in between the sublog
     # entries.
 
-    trip = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'minimum_time', 'maximum_time',
-                                 'latest_information_time'])
-
     all_data = pd.concat(tripwise_action_logs)
 
     key_data = all_data.groupby('information_time').first().reset_index()
     current_information_time = None
     remaining_stops = extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
 
-    base = {
-        'trip_id': all_data.iloc[0]['trip_id'],
-        'route_id': all_data.iloc[0]['route_id'],
-        'action': None,
-        'stop_id': None,
-        'minimum_time': None,
-        'maximum_time': None,
-        'latest_information_time': None,
-    }
+    # Base is trip_id, route_id.
+    base = np.array([all_data.iloc[0]['trip_id'], all_data.iloc[0]['route_id']])
 
     lines = []
 
@@ -333,26 +316,19 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
         i_del = 0
         for remaining_stop in remaining_stops:
             if remaining_stop != current_stop:
-                skipped_stop = base.copy()
-                skipped_stop.update({
-                    'action': 'STOPPED_OR_SKIPPED',
-                    'minimum_time': previous_information_time,
-                    'maximum_time': current_information_time,
-                    'stop_id': remaining_stop,
-                    'latest_information_time': current_information_time
-                })
+                # action, minimum_time, maximum_time, stop_id, latest_information_time
+                skipped_stop = np.append(base.copy(), np.array(
+                    ['STOPPED_OR_SKIPPED', previous_information_time, current_information_time,
+                     remaining_stop, current_information_time]
+                ))
                 lines.append(skipped_stop)
                 i_del += 1
             else:
                 if row['action'] == 'STOPPED_AT':
-                    stopped_stop = base.copy()
-                    stopped_stop.update({
-                        'action': 'STOPPED_AT',
-                        'minimum_time': current_information_time,
-                        'maximum_time': current_information_time,
-                        'stop_id': row['stop_id'],
-                        'latest_information_time': current_information_time
-                    })
+                    stopped_stop = np.append(base.copy(), np.array(
+                        ['STOPPED_AT', current_information_time, current_information_time,
+                         row['stop_id'], current_information_time]
+                    ))
                     lines.append(stopped_stop)
                     i_del += 1
                     break
@@ -363,17 +339,14 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
 
     # Any stops left over we haven't arrived at yet.
     for remaining_stop in remaining_stops:
-        future_stop = base.copy()
-        future_stop.update({
-            'action': 'EN_ROUTE_TO',
-            'minimum_time': current_information_time,
-            'maximum_time': float('nan'),  # to avoid actual-None insertion (!)
-            'stop_id': remaining_stop,
-            'latest_information_time': current_information_time
-        })
+        future_stop = np.append(base.copy(), np.array(
+            ['EN_ROUTE_TO', current_information_time, np.nan,
+             remaining_stop, current_information_time]
+        ))
         lines.append(future_stop)
 
-    trip = trip.append(pd.concat([pd.Series(line) for line in lines], axis='columns').T)
+    trip = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'action', 'minimum_time', 'maximum_time', 'stop_id',
+                                        'latest_information_time'])
 
     # TODO: tests (test_trip_logging.py).
     return trip
