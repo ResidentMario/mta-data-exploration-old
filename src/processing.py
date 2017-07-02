@@ -132,6 +132,8 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         vehicle_status_poi = vehicle_update.vehicle.stop_id
     n_stops = len(message.trip_update.stop_time_update)
 
+    lines = []
+
     for s_i, stop_time_update in enumerate(message.trip_update.stop_time_update):
 
         # If we do have one, we may continue.
@@ -155,7 +157,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.departure.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is not in progress, and we are not at the first index nor the last index, then we will
         # have both types to account for.
@@ -168,14 +170,14 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
             # Departure.
             struct = base.copy()
             struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.departure.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If we are at the last index, then we will have only an arrival to account for.
         elif n_stops == s_i + 1:
@@ -194,7 +196,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is in progress, we have an arrival time, and we have an INCOMING_AT or IN_TRANSIT_TO
         # vehicle update, and the vehicle update and stop update in question are talking about the same
@@ -208,14 +210,14 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
             # Departure.
             struct = base.copy()
             struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.departure.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is in progress, we are STOPPED_AT, we are at the first station in the line, and the vehicle
         # update and stop update in question are talking about the same station, then we are currently stopped at the
@@ -227,7 +229,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'STOPPED_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is in progress, we are STOPPED_AT, and the vehicle update and stop update in question are
         # talking about the same station, then that arrival time should be the time at which this train arrived at
@@ -240,7 +242,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'STOPPED_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is in progress, the vehicle update and stop update in question are not talking about the
         # same station, and the message is not the last one in the sequence, and both an arrival and
@@ -257,14 +259,14 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
             # Departure.
             struct = base.copy()
             struct.update({'action': 'EXPECTED_TO_DEPART_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.departure.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the vehicle update and stop update in question are not talking about the same station,
         # and the message is the last one in the sequence, then we have a forward estimate on when
@@ -275,7 +277,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_END_AT',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         # If the trip is in progress the vehicle update and stop update in question are not talking about the
         # same station, and the message is not the last one in the sequence, and only an arrival is present in
@@ -289,13 +291,14 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             struct.update({'action': 'EXPECTED_TO_SKIP',
                            'stop_id': stop_time_update.stop_id,
                            'time_assigned': stop_time_update.arrival.time})
-            action_log = action_log.append(struct, ignore_index=True)
+            lines.append(struct)
 
         else:
             import pdb; pdb.set_trace()  # useful for debugging
             raise ValueError
 
-    # TODO: Speed-ups, if necessary. Probably by working around using append directly.
+    action_log = action_log.append(pd.concat([pd.Series(line) for line in lines], axis='columns').T)
+
     # TODO: Find out why the EXPECTED_TO_END_AT case never gets hit (the loop hits a case earlier in the stack).
     return action_log
 
