@@ -331,6 +331,8 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
         'latest_information_time': None,
     }
 
+    lines = []
+
     for ind, row in key_data.iterrows():
 
         previous_information_time = current_information_time
@@ -348,7 +350,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
                     'stop_id': remaining_stop,
                     'latest_information_time': current_information_time
                 })
-                trip = trip.append(skipped_stop, ignore_index=True)
+                lines.append(skipped_stop)
                 i_del += 1
             else:
                 if row['action'] == 'STOPPED_AT':
@@ -360,7 +362,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
                         'stop_id': row['stop_id'],
                         'latest_information_time': current_information_time
                     })
-                    trip = trip.append(stopped_stop, ignore_index=True)
+                    lines.append(stopped_stop)
                     i_del += 1
                     break
                 else:
@@ -378,7 +380,9 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
             'stop_id': remaining_stop,
             'latest_information_time': current_information_time
         })
-        trip = trip.append(future_stop, ignore_index=True)
+        lines.append(future_stop)
+
+    trip = trip.append(pd.concat([pd.Series(line) for line in lines], axis='columns').T)
 
     # TODO: tests (test_trip_logging.py).
     return trip
