@@ -117,7 +117,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         'information_time': information_time
     }
 
-    action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned', 
+    action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned',
                                        'information_time'])
 
     # Hash map for current status enums to current status strings.
@@ -481,6 +481,14 @@ def sort_feed_messages_by_trip_id(feed):
     return message_table
 
 
+def finish_trip(trip_log, information_date):
+    """
+    Finishes a trip. We know a trip is finished when its messages stops appearing in feed files, at which time we can
+    "cross out" any stations still remaining.
+    """
+    return trip_log.pipe(lambda df: df.replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED')).fillna(information_date)
+
+
 def parse_feeds_into_trip_logs(feeds, information_dates):
     """
     Given a list of feeds and a list of information dates, returns a hash table of trip logs associated with each
@@ -502,6 +510,9 @@ def parse_feeds_into_trip_logs(feeds, information_dates):
         for i, table in enumerate(message_tables):
             # Is the trip present in this table at all?
             if not table[trip_id]:
+                # if trip_id == "047600_1..S02R":
+                #     import pdb; pdb.set_trace()
+
                 # If the trip hasn't been planned yet, and will simply appear in a later trip update, do nothing.
                 if not trip_began:
                     pass
@@ -514,6 +525,8 @@ def parse_feeds_into_trip_logs(feeds, information_dates):
                     trip_terminated_time = information_dates[i]
 
                 continue
+            else:
+                trip_began = True
 
             action_log = parse_message_list_into_action_log(table[trip_id], information_dates[i])
             actions_logs.append(action_log)
@@ -521,9 +534,7 @@ def parse_feeds_into_trip_logs(feeds, information_dates):
         ret[trip_id] = trip_log
 
         # If the trip was terminated sometime in the course of these feeds, update the trip log accordingly.
-        # TODO: Test that this works.
         if trip_terminated:
-            ret[trip_id]['action'].replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED', inplace=True)
-            ret[trip_id]['maximum_time'].fillna(trip_terminated_time, inplace=True)
+            ret[trip_id] = finish_trip(ret[trip_id], trip_terminated_time)
 
     return ret
