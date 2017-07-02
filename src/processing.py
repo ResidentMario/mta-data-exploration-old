@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import collections
 import itertools
 
@@ -108,17 +109,17 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
     trip_in_progress = bool(vehicle_update)
 
     # The base of the log entry is the same for all possible entries.
-    base = {
-        'trip_id': message.trip_update.trip.trip_id,
-        'route_id': message.trip_update.trip.route_id,
-        'action': None,
-        'stop_id': None,
-        'time_assigned': None,
-        'information_time': information_time
-    }
-
-    action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned',
-                                       'information_time'])
+    # The entries are, in order of key: trip_id, route_id, and information_time.
+    # Each line will additionally contain an action, stop_id, and time_assigned.
+    base = np.array([message.trip_update.trip.trip_id, message.trip_update.trip.route_id, information_time])
+    # base = {
+    #     'trip_id': message.trip_update.trip.trip_id,
+    #     'route_id': message.trip_update.trip.route_id,
+    #     'action': None,
+    #     'stop_id': None,
+    #     'time_assigned': None,
+    #     'information_time': information_time
+    # }
 
     # Hash map for current status enums to current status strings.
     vehicle_status_dict = {
@@ -153,10 +154,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
                 import pdb; pdb.set_trace()
             assert has_departure_time
 
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.departure.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_DEPART_AT', stop_time_update.stop_id, stop_time_update.departure.time]
+            ))
             lines.append(struct)
 
         # If the trip is not in progress, and we are not at the first index nor the last index, then we will
@@ -166,17 +166,15 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             assert has_departure_time
 
             # Arrival.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
             # Departure.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.departure.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_DEPART_AT', stop_time_update.stop_id, stop_time_update.departure.time]
+            ))
             lines.append(struct)
 
         # If we are at the last index, then we will have only an arrival to account for.
@@ -192,10 +190,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
                 # end-stop.
                 pass
 
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+            ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
         # If the trip is in progress, we have an arrival time, and we have an INCOMING_AT or IN_TRANSIT_TO
@@ -206,17 +203,15 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             assert has_departure_time
 
             # Arrival.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
             # Departure.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.departure.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_DEPART_AT', stop_time_update.stop_id, stop_time_update.departure.time]
+            ))
             lines.append(struct)
 
         # If the trip is in progress, we are STOPPED_AT, we are at the first station in the line, and the vehicle
@@ -225,10 +220,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         elif trip_in_progress and vehicle_status == 'STOPPED_AT' and s_i == 0 and not has_arrival_time:
             assert has_departure_time
 
-            struct = base.copy()
-            struct.update({'action': 'STOPPED_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['STOPPED_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
         # If the trip is in progress, we are STOPPED_AT, and the vehicle update and stop update in question are
@@ -238,10 +232,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             assert has_arrival_time
             assert has_departure_time
 
-            struct = base.copy()
-            struct.update({'action': 'STOPPED_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['STOPPED_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
         # If the trip is in progress, the vehicle update and stop update in question are not talking about the
@@ -255,17 +248,15 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             assert has_arrival_time
 
             # Arrival.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_ARRIVE_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
             # Departure.
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_DEPART_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.departure.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_DEPART_AT', stop_time_update.stop_id, stop_time_update.departure.time]
+            ))
             lines.append(struct)
 
         # If the vehicle update and stop update in question are not talking about the same station,
@@ -274,9 +265,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         elif trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1 and not has_departure_time:
             assert has_arrival_time
 
-            struct.update({'action': 'EXPECTED_TO_END_AT',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_END_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
         # If the trip is in progress the vehicle update and stop update in question are not talking about the
@@ -287,17 +278,17 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_departure_time:
             assert has_arrival_time
 
-            struct = base.copy()
-            struct.update({'action': 'EXPECTED_TO_SKIP',
-                           'stop_id': stop_time_update.stop_id,
-                           'time_assigned': stop_time_update.arrival.time})
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_SKIP', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
             lines.append(struct)
 
         else:
             import pdb; pdb.set_trace()  # useful for debugging
             raise ValueError
 
-    action_log = action_log.append(pd.concat([pd.Series(line) for line in lines], axis='columns').T)
+    action_log = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'information_time', 'action', 'stop_id',
+                                              'time_assigned'])
 
     # TODO: Find out why the EXPECTED_TO_END_AT case never gets hit (the loop hits a case earlier in the stack).
     return action_log
