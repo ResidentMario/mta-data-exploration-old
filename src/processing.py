@@ -141,10 +141,7 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         # If the trip is not in progress, and we are at the first index, then we will have only a planned
         # departure to account for.
         if not trip_in_progress and s_i == 0:
-            try:
-                assert not has_arrival_time
-            except AssertionError:
-                import pdb; pdb.set_trace()
+            assert not has_arrival_time
             assert has_departure_time
 
             struct = np.append(base.copy(), np.array(
@@ -361,7 +358,6 @@ def mta_archival_time_to_unix_timestamp(mta_archival_time):
     """
     import datetime
 
-    # import pdb; pdb.set_trace()
     datetime_parts = [int(datetime_part.lstrip('0')) for datetime_part in mta_archival_time.split("-")]
     return int(datetime.datetime(*datetime_parts).timestamp())
 
@@ -394,7 +390,6 @@ def synthesize_station_lists(list_a, list_b):
     Pairwise synthesis op. Submethod of the above.
     """
     # First, find the pivot.
-    # TODO: Optimize this for better-than-O(n^2) performance, if it proves to be necessary.
     pivot_a = pivot_b = -1
     for j in range(len(list_a)):
         station_a = list_a[j]
@@ -481,9 +476,6 @@ def parse_feeds_into_trip_logs(feeds, information_dates):
         for i, table in enumerate(message_tables):
             # Is the trip present in this table at all?
             if not table[trip_id]:
-                # if trip_id == "047600_1..S02R":
-                #     import pdb; pdb.set_trace()
-
                 # If the trip hasn't been planned yet, and will simply appear in a later trip update, do nothing.
                 if not trip_began:
                     pass
