@@ -1,4 +1,4 @@
-data/*
+data/gtfs/
 */.ipynb_checkpoints
 .idea/
 *.pyc
