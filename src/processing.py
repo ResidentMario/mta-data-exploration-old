@@ -288,15 +288,23 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     """
     Given a list of action logs associated with a particular trip, returns the result of their merger: a single trip
     log.
-    """
-    # To understand what went on during a trip, we only need to have a list of touched stops, the rows corresponding
-    # with the first action in each observation's action sublog, and the time that has passed in between the sublog
-    # entries.
 
+    Note that this trip log is not terminated. If the action logs do not provide complete information about this
+    trip's stops (for example, if the train stopped at its last stop and was subsequently removed from the record in
+    the time between updates) then you will need to "finish" the trip information off yourself, using the
+    `finish_trip` method. This is done for you in `parse_feeds_into_trip_logs`.
+    """
     all_data = pd.concat(tripwise_action_logs)
 
     key_data = all_data.groupby('information_time').first().reset_index()
     current_information_time = None
+
+    # To understand what went on during a trip, we only need to have a list of touched stops, the rows corresponding
+    # with the first action in each observation's action sublog, and the time that has passed in between the sublog
+    # entries.
+    #
+    # We can extract all of the stop information that we need by considering information pertaining to these entries,
+    # in order.
     remaining_stops = extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
 
     # Base is trip_id, route_id.
