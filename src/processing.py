@@ -106,6 +106,12 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
 
     This method is called by parse_message_list_into_action_log in a loop in order to get the complete action log.
     """
+    # To help catch errors, validate input.
+    if vehicle_update is not None and not is_vehicle_update(vehicle_update):
+        raise ValueError("The vehicle update message provided is invalid.")
+    if not is_trip_update(message):
+        raise ValueError("The trip update message provided is invalid.")
+
     # If we are passed a vehicle update, then the trip must already be in progress.
     trip_in_progress = bool(vehicle_update)
 
@@ -124,6 +130,8 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
     if trip_in_progress:
         vehicle_status = vehicle_status_dict[vehicle_update.vehicle.current_status]
         vehicle_status_poi = vehicle_update.vehicle.stop_id
+    else:
+        vehicle_status = None
     n_stops = len(message.trip_update.stop_time_update)
 
     lines = []
@@ -167,7 +175,8 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             ))
             lines.append(struct)
 
-        # If we are at the last index, then we will have only an arrival to account for.
+        # If we are at the last index and we do not have a vehicle update present, then we will have only an arrival to
+        # account for.
         elif n_stops == s_i + 1:
             assert has_arrival_time
             try:
@@ -180,9 +189,43 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
                 # end-stop.
                 pass
 
-            struct = np.append(base.copy(), np.array(
-            ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
-            ))
+            if len(message.trip_update.stop_time_update) != 1:  # this is the final stop, but train is elsewhere
+                struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+                ))
+                lines.append(struct)
+            elif vehicle_status != 'STOPPED_AT':  # this is the final stop, train is en route to it
+                struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+                ))
+                lines.append(struct)
+            else:  # this is the final stop, train is STOPPED_AT it
+                struct = np.append(base.copy(), np.array(
+                ['STOPPED_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+                ))
+                lines.append(struct)
+
+        # If we are at the last index, and we are not stopped, then we will have only an arrival to account for.
+        elif n_stops == s_i + 1:
+            assert has_arrival_time
+            try:
+                assert not has_departure_time
+            except AssertionError:
+                # This isn't supposed to happen, because it means that the train is question is being made out as
+                # though it is departing to some next station on the line when there are no other stations on the
+                # line to depart to. However, this appears to occur in some cases. For example, an incidence of this
+                # occurs in the 2014-09-17-09-36 GTFS-Realtime archive, where a 4 train departs from a Utica Avenue
+                # end-stop.
+                pass
+
+            if vehicle_status != 'STOPPED_AT':
+                struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_ARRIVE_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+                ))
+            else:
+                struct = np.append(base.copy(), np.array(
+                ['STOPPED_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
+                ))
             lines.append(struct)
 
         # If the trip is in progress, we have an arrival time, and we have an INCOMING_AT or IN_TRANSIT_TO
