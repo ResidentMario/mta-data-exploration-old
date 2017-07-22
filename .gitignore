@@ -3,3 +3,4 @@ data/gtfs/
 .idea/
 *.pyc
 auth/
+notebooks/data

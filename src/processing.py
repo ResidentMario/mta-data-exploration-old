@@ -356,8 +356,6 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     # TODO: tests (test_trip_logging.py).
     return trip
 
-# TODO: Methodology for merging a set of fresh tripwise action logs onto an existing trip log (if necessary).
-
 
 def mta_archival_time_to_unix_timestamp(mta_archival_time):
     """
@@ -463,7 +461,7 @@ def finish_trip(trip_log, information_date):
     return trip_log.pipe(lambda df: df.replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED')).fillna(information_date)
 
 
-def parse_feeds_into_trip_logs(feeds, information_dates):
+def parse_feeds_into_trip_logbook(feeds, information_dates):
     """
     Given a list of feeds and a list of information dates, returns a hash table of trip logs associated with each
     trip mentioned in those feeds.
@@ -509,3 +507,83 @@ def parse_feeds_into_trip_logs(feeds, information_dates):
             ret[trip_id] = finish_trip(ret[trip_id], trip_terminated_time)
 
     return ret
+
+
+def merge_trip_logbooks(logbooks):
+    """
+    Given a list of trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns the merger of the two.
+    """
+    left = dict()
+    for right in logbooks:
+        join_logbooks(left, right)
+    return left
+
+
+def join_logbooks(left, right):
+    """
+    Given two trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns the merger of the two.
+    """
+    # Figure out what our jobs are by trip id key.
+    mutual_keys = left.keys().intersection(right.keys())
+    left_exclusive_keys = left.keys().difference(mutual_keys)
+    right_exclusive_keys = right.keys().difference(mutual_keys)
+
+    # Build out non-intersecting trips.
+    result = dict()
+    for key in left_exclusive_keys:
+        result[key] = left[key]
+    for key in right_exclusive_keys:
+        result[key] = right[key]
+
+    # Build out (join) intersecting trips.
+    for key in mutual_keys:
+        result[key] = join_trip_logs(left[key], right[key])
+
+    return result
+
+
+# noinspection PyUnresolvedReferences
+def join_trip_logs(left, right):
+    """
+    Two trip logs may contain information based on action logs, and GTFS-Realtime feed updates, which are
+    dis-contiguous in time. In other words, these logs reflect the same trip, but are based on different sets of
+    observations.
+
+    In such cases recovering a full(er) record requires merging these two logs together. Here we implement this
+    operation.
+
+    This method, the core of merge_trip_logbooks, is an operational necessity, as a day's worth of raw GTFS-R
+    messages at minutely resolution eats up 12 GB of RAM or more.
+    """
+    # Order the frames so that the earlier one is on the left.
+    left_start, right_start = left['latest_information_time'].min(), right['latest_information_time'].min()
+    if right_start < left_start:
+        left, right = right, left
+
+    # Get the combined synthetic station list.
+    left_stations = set(left['stop_id'].values)
+    right_stations = set(right['stop_id'].values)
+    stations = extract_synthetic_route_from_station_lists([list(left_stations), list(right_stations)])
+
+    # Combine the station information in last-precedent order.
+    entries = []
+    for station in stations:
+        if station in left_stations:
+            entries.append(left[left['stop_id'] == station].iloc[0])
+        else:
+            entries.append(right[right['stop_id'] == station].iloc[0])
+
+    # Combine records.
+    join = pd.concat([pd.DataFrame(entry).T for entry in entries]).reset_index()
+
+    # Update records for stations before the last that the train is EN_ROUTE_TO to STOPPED_OR_SKIPPED.
+    swap_space = join[:len(join) - 1]
+    where_update = swap_space[swap_space['action'] == 'EN_ROUTE_TO'].index.values
+
+    for index in where_update:
+        entry = join.iloc[index]
+        next_entry = join.iloc[index + 1]
+        entry['action'] = 'STOPPED_OR_SKIPPED'
+        entry['maximum_time'] = next_entry['maximum_time']
+
+    return join
