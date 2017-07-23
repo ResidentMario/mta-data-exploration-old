@@ -32,7 +32,7 @@ def fetch_archival_gtfs_realtime_data(kind='gtfs', timestamp='2014-09-17-09-31',
         return feed
 
 
-def parse_gtfs_into_action_log(feed, information_time):
+def _parse_gtfs_into_action_log(feed, information_time):
     """
     Parses a GTFS-Realtime feed into a single pandas.DataFrame
 
@@ -41,10 +41,10 @@ def parse_gtfs_into_action_log(feed, information_time):
     feed, gtfs_realtime_pb2.FeedMessage object
         The feed being processed.
     """
-    return parse_message_list_into_action_log(feed.entity, information_time)
+    return _parse_message_list_into_action_log(feed.entity, information_time)
 
 
-def parse_message_list_into_action_log(messages, information_time):
+def _parse_message_list_into_action_log(messages, information_time):
     """
     Parses a list of messages into a single pandas.DataFrame
     """
@@ -57,7 +57,7 @@ def parse_message_list_into_action_log(messages, information_time):
     alert_breakpoint = None
 
     for i, message in enumerate(reversed(messages)):
-        if is_alert(message):
+        if _is_alert(message):
             alert_breakpoint = len(messages) - i
             break
 
@@ -69,7 +69,7 @@ def parse_message_list_into_action_log(messages, information_time):
     for i in range(0, trips_breakpoint):
         message = messages[i]
 
-        if is_vehicle_update(message):
+        if _is_vehicle_update(message):
             # This is a vehicle update message.
             # Since vehicle update messages always appear after trip update messages (is this true?),
             # we won't process them separately.
@@ -82,7 +82,7 @@ def parse_message_list_into_action_log(messages, information_time):
             if i == len(messages) - 1:
                 has_associated_vehicle_update = False
             elif (alerts and i != alert_breakpoint - 1) or not alerts:
-                has_associated_vehicle_update = is_vehicle_update(messages[i + 1])
+                has_associated_vehicle_update = _is_vehicle_update(messages[i + 1])
             else:
                 has_associated_vehicle_update = False
             trip_in_progress = has_associated_vehicle_update
@@ -109,9 +109,9 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
     # TODO: Simplify the overly complicated logic here.
 
     # To help catch errors, validate input.
-    if vehicle_update is not None and not is_vehicle_update(vehicle_update):
+    if vehicle_update is not None and not _is_vehicle_update(vehicle_update):
         raise ValueError("The vehicle update message provided is invalid.")
-    if not is_trip_update(message):
+    if not _is_trip_update(message):
         raise ValueError("The trip update message provided is invalid.")
 
     # If we are passed a vehicle update, then the trip must already be in progress.
@@ -320,8 +320,6 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
 
     action_log = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'information_time', 'action', 'stop_id',
                                               'time_assigned'])
-
-    # TODO: Find out why the EXPECTED_TO_END_AT case never gets hit (the loop hits a case earlier in the stack).
     return action_log
 
 
@@ -346,7 +344,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     #
     # We can extract all of the stop information that we need by considering information pertaining to these entries,
     # in order.
-    remaining_stops = extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
+    remaining_stops = _extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs)
 
     # Base is trip_id, route_id.
     base = np.array([all_data.iloc[0]['trip_id'], all_data.iloc[0]['route_id']])
@@ -393,8 +391,6 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
 
     trip = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'action', 'minimum_time', 'maximum_time', 'stop_id',
                                         'latest_information_time'])
-
-    # TODO: tests (test_trip_logging.py).
     return trip
 
 
@@ -409,7 +405,7 @@ def mta_archival_time_to_unix_timestamp(mta_archival_time):
     return int(datetime.datetime(*datetime_parts).timestamp())
 
 
-def extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs):
+def _extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs):
     """
     Given a list of trip-wise action logs, returns the synthetic route of all of the stops that train may have
     stopped at, in the order in which those stops would have occurred.
@@ -417,10 +413,10 @@ def extract_synthetic_route_from_tripwise_action_logs(tripwise_action_logs):
     station_lists = []
     for log in tripwise_action_logs:
         station_lists.append(list(log['stop_id'].unique()))
-    return extract_synthetic_route_from_station_lists(station_lists)
+    return _extract_synthetic_route_from_station_lists(station_lists)
 
 
-def extract_synthetic_route_from_station_lists(station_lists):
+def _extract_synthetic_route_from_station_lists(station_lists):
     """
     Given a list of station lists (that is: a list of lists, where each sublist consists of the series of stations
     which a train was purported to be heading towards at any one time), returns the synthetic route of all of the
@@ -428,11 +424,11 @@ def extract_synthetic_route_from_station_lists(station_lists):
     """
     ret = []
     for i in range(len(station_lists)):
-        ret = synthesize_station_lists(ret, station_lists[i])
+        ret = _synthesize_station_lists(ret, station_lists[i])
     return ret
 
 
-def synthesize_station_lists(list_a, list_b):
+def _synthesize_station_lists(list_a, list_b):
     """
     Pairwise synthesis op. Submethod of the above.
     """
@@ -460,22 +456,22 @@ def synthesize_station_lists(list_a, list_b):
         return list_a + list_b
 
 
-def is_vehicle_update(message):
+def _is_vehicle_update(message):
     """Helper method that determines whether or not a message is a vehicle update."""
     return str(message.trip_update.trip.route_id) == ''
 
 
-def is_alert(message):
+def _is_alert(message):
     """Helper method that determines whether or not a message is an alert."""
     return str(message.alert) != ''
 
 
-def is_trip_update(message):
+def _is_trip_update(message):
     """Helper method that determines whether or not a message is a trip update."""
-    return not is_vehicle_update(message) and not is_alert(message)
+    return not _is_vehicle_update(message) and not _is_alert(message)
 
 
-def sort_feed_messages_by_trip_id(feed):
+def _sort_feed_messages_by_trip_id(feed):
     """
     Takes a feed. Returns a hash table of non-alert messages in that feed corresponding with particular trips.
 
@@ -484,9 +480,9 @@ def sort_feed_messages_by_trip_id(feed):
     """
     message_table = collections.defaultdict(list)
     for message in feed.entity:
-        if is_alert(message):
+        if _is_alert(message):
             continue
-        elif is_trip_update(message):
+        elif _is_trip_update(message):
             trip_id = message.trip_update.trip.trip_id
         else:  # is_vehicle_update
             trip_id = message.vehicle.trip.trip_id
@@ -494,7 +490,7 @@ def sort_feed_messages_by_trip_id(feed):
     return message_table
 
 
-def finish_trip(trip_log, information_date):
+def _finish_trip(trip_log, information_date):
     """
     Finishes a trip. We know a trip is finished when its messages stops appearing in feed files, at which time we can
     "cross out" any stations still remaining.
@@ -509,7 +505,7 @@ def parse_feeds_into_trip_logbook(feeds, information_dates):
 
     The ultimate method for which all of the above was developed.
     """
-    message_tables = [sort_feed_messages_by_trip_id(feed) for feed in feeds]
+    message_tables = [_sort_feed_messages_by_trip_id(feed) for feed in feeds]
     trip_ids = set(itertools.chain(*[table.keys() for table in message_tables]))
 
     ret = dict()
@@ -538,14 +534,14 @@ def parse_feeds_into_trip_logbook(feeds, information_dates):
             else:
                 trip_began = True
 
-            action_log = parse_message_list_into_action_log(table[trip_id], information_dates[i])
+            action_log = _parse_message_list_into_action_log(table[trip_id], information_dates[i])
             actions_logs.append(action_log)
         trip_log = parse_tripwise_action_logs_into_trip_log(actions_logs)
         ret[trip_id] = trip_log
 
         # If the trip was terminated sometime in the course of these feeds, update the trip log accordingly.
         if trip_terminated:
-            ret[trip_id] = finish_trip(ret[trip_id], trip_terminated_time)
+            ret[trip_id] = _finish_trip(ret[trip_id], trip_terminated_time)
 
     return ret
 
@@ -556,11 +552,11 @@ def merge_trip_logbooks(logbooks):
     """
     left = dict()
     for right in logbooks:
-        join_logbooks(left, right)
+        _join_logbooks(left, right)
     return left
 
 
-def join_logbooks(left, right):
+def _join_logbooks(left, right):
     """
     Given two trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns the merger of the two.
     """
@@ -578,13 +574,13 @@ def join_logbooks(left, right):
 
     # Build out (join) intersecting trips.
     for key in mutual_keys:
-        result[key] = join_trip_logs(left[key], right[key])
+        result[key] = _join_trip_logs(left[key], right[key])
 
     return result
 
 
 # noinspection PyUnresolvedReferences
-def join_trip_logs(left, right):
+def _join_trip_logs(left, right):
     """
     Two trip logs may contain information based on action logs, and GTFS-Realtime feed updates, which are
     dis-contiguous in time. In other words, these logs reflect the same trip, but are based on different sets of
@@ -604,7 +600,7 @@ def join_trip_logs(left, right):
     # Get the combined synthetic station list.
     left_stations = set(left['stop_id'].values)
     right_stations = set(right['stop_id'].values)
-    stations = extract_synthetic_route_from_station_lists([list(left_stations), list(right_stations)])
+    stations = _extract_synthetic_route_from_station_lists([list(left_stations), list(right_stations)])
 
     # Combine the station information in last-precedent order.
     entries = []
