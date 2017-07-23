@@ -343,7 +343,8 @@ class ReroutingTests(unittest.TestCase):
 
 class SmokeTests(unittest.TestCase):
     """
-    Make sure that the user-facing wrapper method over all of the above works correctly.
+    Make sure that the user-facing wrapper method over all of the above works correctly. We only need to smoke test
+    this because all of the core logic is covered in the tests above.
     """
 
     def setUp(self):
@@ -368,3 +369,14 @@ class SmokeTests(unittest.TestCase):
 
         assert len(result) == 4
         assert list(result['action']) == ['STOPPED_AT', 'STOPPED_OR_SKIPPED', 'EN_ROUTE_TO', 'EN_ROUTE_TO']
+
+
+class TripLogJoinTests(unittest.TestCase):
+    """
+    Out of necessity, we implement join logic: in other words, we have and use routines for combining trip logs
+    corresponding with the same trip together. This allows us to consolidate two different trip logs representing
+    two trips for different observatory "stretches" into unitary trip logs.
+
+    The necessity of implementing this methodology comes out of practical considerations of library usage.
+    """
+    pass
