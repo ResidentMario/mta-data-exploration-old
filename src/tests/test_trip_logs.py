@@ -325,5 +325,17 @@ class ReroutingTests(unittest.TestCase):
     """
     These tests make sure that trip logs work as expected when the train gets rerouted.
     """
-    pass
+    def test_en_route_reroute(self):
+        """
+        Behavior when en route, and rerouted to another en route, is that the earlier station(s) ought to be marked
+        "STOPPED_OR_SKIPPED".
+        """
+        base = create_mock_action_log(actions=['EXPECTED_TO_ARRIVE_AT', 'EXPECTED_TO_ARRIVE_AT'],
+                                      stops=['999X', '998X'])
+        first = base.head(1)
+        second = base.tail(1).set_value(1, 'information_time', 1)
 
+        result = processing.parse_tripwise_action_logs_into_trip_log([first, second])
+
+        assert len(result) == 2
+        assert list(result['action'].values) == ['STOPPED_OR_SKIPPED', 'EN_ROUTE_TO']
