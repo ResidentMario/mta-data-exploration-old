@@ -353,7 +353,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
 
     for ind, row in key_data.iterrows():
 
-        previous_information_time = current_information_time
+        previous_information_time = current_information_time if current_information_time is not None else np.nan
         current_information_time = row['information_time']
         current_stop = row['stop_id']
 
@@ -370,7 +370,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
             else:
                 if row['action'] == 'STOPPED_AT':
                     stopped_stop = np.append(base.copy(), np.array(
-                        ['STOPPED_AT', current_information_time, current_information_time,
+                        ['STOPPED_AT', previous_information_time, current_information_time,
                          row['stop_id'], current_information_time]
                     ))
                     lines.append(stopped_stop)
@@ -495,7 +495,11 @@ def _finish_trip(trip_log, information_date):
     Finishes a trip. We know a trip is finished when its messages stops appearing in feed files, at which time we can
     "cross out" any stations still remaining.
     """
-    return trip_log.pipe(lambda df: df.replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED')).fillna(information_date)
+    trip_log = (trip_log.replace('EN_ROUTE_TO', 'STOPPED_OR_SKIPPED')
+                        .replace('EXPECTED_TO_SKIP', 'STOPPED_OR_SKIPPED')
+                        .replace('nan', np.nan))
+    trip_log['maximum_time'] = trip_log['maximum_time'].fillna(information_date)
+    return trip_log
 
 
 def parse_feeds_into_trip_logbook(feeds, information_dates):
