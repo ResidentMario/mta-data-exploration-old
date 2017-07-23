@@ -339,3 +339,32 @@ class ReroutingTests(unittest.TestCase):
 
         assert len(result) == 2
         assert list(result['action'].values) == ['STOPPED_OR_SKIPPED', 'EN_ROUTE_TO']
+
+
+class SmokeTests(unittest.TestCase):
+    """
+    Make sure that the user-facing wrapper method over all of the above works correctly.
+    """
+
+    def setUp(self):
+        from google.transit import gtfs_realtime_pb2
+
+        with open("./data/gtfs_realtime_pull_1.dat", "rb") as f:
+            gtfs_r0 = gtfs_realtime_pb2.FeedMessage()
+            gtfs_r0.ParseFromString(f.read())
+        with open("./data/gtfs_realtime_pull_2.dat", "rb") as f:
+            gtfs_r1 = gtfs_realtime_pb2.FeedMessage()
+            gtfs_r1.ParseFromString(f.read())
+
+        self.gtfs_r0 = gtfs_r0
+        self.gtfs_r1 = gtfs_r1
+
+    def test_smoke(self):
+        example_trip_messages = [[self.gtfs_r0.entity[0], self.gtfs_r0.entity[1]],
+                                 [self.gtfs_r1.entity[0], self.gtfs_r1.entity[1]]]
+        actions = [processing.parse_message_into_action_log(t_u, v_u, i) for (i, (t_u, v_u)) in
+                   enumerate(example_trip_messages)]
+        result = processing.parse_tripwise_action_logs_into_trip_log(actions)
+
+        assert len(result) == 4
+        assert list(result['action']) == ['STOPPED_AT', 'STOPPED_OR_SKIPPED', 'EN_ROUTE_TO', 'EN_ROUTE_TO']
