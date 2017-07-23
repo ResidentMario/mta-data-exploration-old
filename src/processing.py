@@ -106,6 +106,8 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
 
     This method is called by parse_message_list_into_action_log in a loop in order to get the complete action log.
     """
+    # TODO: Simplify the overly complicated logic here.
+
     # To help catch errors, validate input.
     if vehicle_update is not None and not is_vehicle_update(vehicle_update):
         raise ValueError("The vehicle update message provided is invalid.")
@@ -312,19 +314,8 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             ))
             lines.append(struct)
 
-        # If the vehicle update and stop update in question are not talking about the same station,
-        # and the message is the last one in the sequence, then we have a forward estimate on when
-        # this train will arrive at its endpoint station.
-        elif trip_in_progress and not stop_is_next_stop and n_stops == s_i + 1 and not has_departure_time:
-            assert has_arrival_time
-
-            struct = np.append(base.copy(), np.array(
-                ['EXPECTED_TO_END_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
-            ))
-            lines.append(struct)
-
         else:
-            import pdb; pdb.set_trace()  # useful for debugging
+            # import pdb; pdb.set_trace()  # useful for debugging
             raise ValueError
 
     action_log = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'information_time', 'action', 'stop_id',
