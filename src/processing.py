@@ -205,6 +205,26 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
                 ))
                 lines.append(struct)
 
+        # If the trip is in progress the vehicle update and stop update in question are not talking about the
+        # same station, and the message is not the last one in the sequence, and either only an arrival or only a
+        # departure is present in the struct, then we have a forward estimate on when this train will arrive at some
+        # other station further down the line (but not at the very end), but at which it *will not stop*. In other
+        # words, this indicates that this train is going to skip this stop in its service!
+        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_departure_time:
+            assert has_arrival_time
+
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_SKIP', stop_time_update.stop_id, stop_time_update.arrival.time]
+            ))
+            lines.append(struct)
+        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_arrival_time:
+            assert has_departure_time
+
+            struct = np.append(base.copy(), np.array(
+                ['EXPECTED_TO_SKIP', stop_time_update.stop_id, stop_time_update.departure.time]
+            ))
+            lines.append(struct)
+
         # If we are at the last index, and we are not stopped, then we will have only an arrival to account for.
         elif n_stops == s_i + 1:
             assert has_arrival_time
@@ -300,19 +320,6 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
 
             struct = np.append(base.copy(), np.array(
                 ['EXPECTED_TO_END_AT', stop_time_update.stop_id, stop_time_update.arrival.time]
-            ))
-            lines.append(struct)
-
-        # If the trip is in progress the vehicle update and stop update in question are not talking about the
-        # same station, and the message is not the last one in the sequence, and only an arrival is present in
-        # the struct, then we have a forward estimate on when this train will arrive at some other station
-        # further down the line (but not at the very end), but at which it *will not stop*. In other words,
-        # this indicates that this train is going to skip this stop in its service!
-        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_departure_time:
-            assert has_arrival_time
-
-            struct = np.append(base.copy(), np.array(
-                ['EXPECTED_TO_SKIP', stop_time_update.stop_id, stop_time_update.arrival.time]
             ))
             lines.append(struct)
 

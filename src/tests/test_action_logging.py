@@ -20,15 +20,22 @@ import processing
 
 class TestParsingMessagesIntoActionLog(unittest.TestCase):
     def setUp(self):
+        # TODO: Verify that the statement below is actually true, in the case of gtfs_r1.
+        # NB: Filenames are positions in a five-minute-resolution log sequence dating from 2014-09-18-09.
+        # This same test sequence is used throughout the development notebooks.
         with open("./data/gtfs_realtime_pull_1.dat", "rb") as f:
             gtfs_r0 = gtfs_realtime_pb2.FeedMessage()
             gtfs_r0.ParseFromString(f.read())
         with open("./data/gtfs_realtime_pull_2.dat", "rb") as f:
             gtfs_r1 = gtfs_realtime_pb2.FeedMessage()
             gtfs_r1.ParseFromString(f.read())
+        with open("./data/gtfs_realtime_pull_8.dat", "rb") as f:
+            gtfs_r8 = gtfs_realtime_pb2.FeedMessage()
+            gtfs_r8.ParseFromString(f.read())
 
         self.gtfs_r0 = gtfs_r0
         self.gtfs_r1 = gtfs_r1
+        self.gtfs_r8 = gtfs_r8
 
     def test_case_1(self):
         """
@@ -125,19 +132,37 @@ class TestParsingMessagesIntoActionLog(unittest.TestCase):
     def test_case_8(self):
         """
         The train is somewhere along its trip, and follows all of the same rules as the similar earlier test cases
-        thereof. However, it is also expected to skip one or more stops along its route.
+        thereof. However, it is also expected to skip one or more stops along its route. Separately, make sure that
+        such trips are correctly populated.
+
+        There are actually two such cases. In the first case, we have an intermediate station with only a departure.
+        In the second, an intermediate station with only an arrival.
+
+        One hopes that there isn't some special meaning attached to the difference between the two.
         """
-        pass
+        # First subcase.
+        trip_update = self.gtfs_r8.entity[99]
+        vehicle_update = self.gtfs_r8.entity[100]
+
+        result = processing.parse_message_into_action_log(trip_update, vehicle_update, None)
+        assert len(result) == 54
+        assert result.iloc[34]['action'] == 'EXPECTED_TO_SKIP'
+
+        # Second subcase.
+        trip_update = self.gtfs_r0.entity[109]
+        vehicle_update = self.gtfs_r8.entity[110]
+
+        result = processing.parse_message_into_action_log(trip_update, vehicle_update, None)
+        assert len(result) == 38
+        assert result.iloc[20]['action'] == 'EXPECTED_TO_SKIP'
 
     def test_case_error_1(self):
         """
         The last record in the Trip Update message erroneously contains a departure. This is an error in the
-        GTFS-Realtime output that was found, by train and error, to occur more than once.
+        GTFS-Realtime output that was found, by trail and error, to occur more than once.
         """
         trip_update = self.gtfs_r1.entity[207]
         vehicle_update = self.gtfs_r1.entity[208]
         result = processing.parse_message_into_action_log(trip_update, vehicle_update, None)
         assert len(result) == 1
         assert result['action'].iloc[0] == 'EXPECTED_TO_ARRIVE_AT'
-
-    # TODO: Unit tests for more cases.
