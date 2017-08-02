@@ -4,3 +4,4 @@ data/gtfs/
 *.pyc
 auth/
 notebooks/data
+src/tests/.cache

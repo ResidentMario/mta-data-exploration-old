@@ -556,7 +556,8 @@ def merge_trip_logbooks(logbooks):
     """
     left = dict()
     for right in logbooks:
-        _join_logbooks(left, right)
+        print("JOINED!")
+        left = _join_logbooks(left, right)
     return left
 
 
@@ -565,9 +566,12 @@ def _join_logbooks(left, right):
     Given two trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns the merger of the two.
     """
     # Figure out what our jobs are by trip id key.
-    mutual_keys = left.keys().intersection(right.keys())
-    left_exclusive_keys = left.keys().difference(mutual_keys)
-    right_exclusive_keys = right.keys().difference(mutual_keys)
+    left_keys = set(left.keys())
+    right_keys = set(right.keys())
+
+    mutual_keys = left_keys.intersection(right_keys)
+    left_exclusive_keys = left_keys.difference(mutual_keys)
+    right_exclusive_keys = right_keys.difference(mutual_keys)
 
     # Build out non-intersecting trips.
     result = dict()
