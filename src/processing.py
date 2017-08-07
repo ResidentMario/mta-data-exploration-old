@@ -556,7 +556,6 @@ def merge_trip_logbooks(logbooks):
     """
     left = dict()
     for right in logbooks:
-        print("JOINED!")
         left = _join_logbooks(left, right)
     return left
 
@@ -612,6 +611,7 @@ def _join_trip_logs(left, right):
 
     # Combine the station information in last-precedent order.
     entries = []
+    # import pdb; pdb.set_trace()
     for station in stations:
         if station in left_stations:
             entries.append(left[left['stop_id'] == station].iloc[0])
@@ -619,16 +619,14 @@ def _join_trip_logs(left, right):
             entries.append(right[right['stop_id'] == station].iloc[0])
 
     # Combine records.
-    join = pd.concat([pd.DataFrame(entry).T for entry in entries]).reset_index()
+    join = pd.concat(entries, axis='columns').T.reset_index()
 
     # Update records for stations before the last that the train is EN_ROUTE_TO to STOPPED_OR_SKIPPED.
     swap_space = join[:len(join) - 1]
     where_update = swap_space[swap_space['action'] == 'EN_ROUTE_TO'].index.values
 
-    for index in where_update:
-        entry = join.iloc[index]
-        next_entry = join.iloc[index + 1]
-        entry['action'] = 'STOPPED_OR_SKIPPED'
-        entry['maximum_time'] = next_entry['maximum_time']
+    next_entries = join.iloc[[n + 1 for n in where_update]]
+    join.loc[where_update, 'action'] = 'STOPPED_OR_SKIPPED'
+    join.loc[where_update, 'maximum_time'] = next_entries['maximum_time']
 
     return join
