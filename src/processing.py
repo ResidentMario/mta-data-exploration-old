@@ -605,18 +605,25 @@ def _join_trip_logs(left, right):
         left, right = right, left
 
     # Get the combined synthetic station list.
+    stations = _extract_synthetic_route_from_station_lists([list(left['stop_id'].values),
+                                                            list(right['stop_id'].values)])
     left_stations = set(left['stop_id'].values)
-    right_stations = set(right['stop_id'].values)
-    stations = _extract_synthetic_route_from_station_lists([list(left_stations), list(right_stations)])
 
     # Combine the station information in last-precedent order.
     entries = []
+
     # import pdb; pdb.set_trace()
+    # Because our synthetic station ordering obeys left-to-right precedence we can fetch the relevant records in a
+    # single O(n) scan instead of an O(n^2) naive search.
+    l_i = 0
+    r_i = 0
     for station in stations:
         if station in left_stations:
-            entries.append(left[left['stop_id'] == station].iloc[0])
-        else:
-            entries.append(right[right['stop_id'] == station].iloc[0])
+            entries.append(left.iloc[l_i])
+            l_i += 1
+        else:  # station in right_stations
+            entries.append(right.iloc[r_i])
+            r_i += 1
 
     # Combine records.
     join = pd.concat(entries, axis='columns').T.reset_index()
