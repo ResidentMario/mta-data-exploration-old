@@ -16,10 +16,6 @@ class TestSynthesizeStationLists(unittest.TestCase):
         result = processing._synthesize_station_lists(['A', 'B', 'C'], ['D', 'E', 'F'])
         assert result == ['A', 'B', 'C', 'D', 'E', 'F']
 
-    def test_pivoted_route(self):
-        result = processing._synthesize_station_lists(['A', 'B', 'D'], ['C', 'D', 'E'])
-        assert result == ['A', 'B', 'D', 'E']
-
     def test_same_route(self):
         result = processing._synthesize_station_lists(['A', 'B', 'C'], ['A', 'B', 'C'])
         assert result == ['A', 'B', 'C']
@@ -34,6 +30,20 @@ class TestSynthesizeStationLists(unittest.TestCase):
     def test_doubly_empty_route(self):
         result = processing._synthesize_station_lists([], [])
         assert result == []
+
+    def test_pivoted_route(self):
+        result = processing._synthesize_station_lists(['A', 'C'], ['B', 'C'])
+        assert result == ['A', 'B', 'C']
+
+    def test_pivoted_capped_route(self):
+        result = processing._synthesize_station_lists(['A', 'C', 'D'], ['B', 'C', 'E'])
+        expected = ['A', 'B', 'C', 'E']
+        assert result == expected
+
+    def test_interleved_route(self):
+        result = processing._synthesize_station_lists(['A', 'C', 'D', 'E'], ['B', 'C', 'F', 'G'])
+        expected = ['A', 'B', 'C', 'F', 'G']  # 'E' gets ignored
+        assert result == expected
 
 
 class TestExtractSyntheticRouteFromStationLists(unittest.TestCase):

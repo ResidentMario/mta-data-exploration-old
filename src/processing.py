@@ -428,32 +428,34 @@ def _extract_synthetic_route_from_station_lists(station_lists):
     return ret
 
 
-def _synthesize_station_lists(list_a, list_b):
+def _synthesize_station_lists(left, right):
     """
     Pairwise synthesis op. Submethod of the above.
     """
     # First, find the pivot.
-    pivot_a = pivot_b = -1
-    for j in range(len(list_a)):
-        station_a = list_a[j]
-        for k in range(len(list_b)):
-            station_b = list_b[k]
+    pivot_left = pivot_right = -1
+    for j in range(len(left)):
+        station_a = left[j]
+        for k in range(len(right)):
+            station_b = right[k]
             if station_a == station_b:
-                pivot_a = j
-                pivot_b = k
+                pivot_left = j
+                pivot_right = k
                 break
 
     # If we found a pivot...
-    if pivot_a != -1:
+    if pivot_left != -1:
         # ...then the stations that appear before the pivot in the first list, the pivot, and the stations that
         # appear after the pivot in the second list should be the ones that are included
-        return list_a[:pivot_a] + list_b[pivot_b:]
+        return (left[:pivot_left] +
+                [s for s in right[:pivot_right] if s not in left[:pivot_left]] +
+                right[pivot_right:])
     # If we did not find a pivot...
     else:
         # ...then none of the stations that appear in the second list appeared in the first list. This means that the
         #  train probably cancelled those stations, but it may have stopped there in the meantime also. Add all
         # stations in the first list and all stations in the second list together.
-        return list_a + list_b
+        return left + right
 
 
 def _is_vehicle_update(message):
@@ -552,7 +554,7 @@ def parse_feeds_into_trip_logbook(feeds, information_dates):
 
 def merge_trip_logbooks(logbooks):
     """
-    Given a list of trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns the merger of the two.
+    Given a list of trip logbooks (as returned by `parse_feeds_into_trip_logbooks`), returns their merger.
     """
     left = dict()
     for right in logbooks:
@@ -607,33 +609,33 @@ def _join_trip_logs(left, right):
     # Get the combined synthetic station list.
     stations = _extract_synthetic_route_from_station_lists([list(left['stop_id'].values),
                                                             list(right['stop_id'].values)])
-    left_stations = set(left['stop_id'].values)
+    right_stations = set(right['stop_id'].values)
 
     # Combine the station information in last-precedent order.
-    entries = []
+    l_i = r_i = 0
+    left_indices, right_indices = [], []
 
-    # import pdb; pdb.set_trace()
-    # Because our synthetic station ordering obeys left-to-right precedence we can fetch the relevant records in a
-    # single O(n) scan instead of an O(n^2) naive search.
-    l_i = 0
-    r_i = 0
     for station in stations:
-        if station in left_stations:
-            entries.append(left.iloc[l_i])
+        if station not in right_stations:
+            left_indices.append(l_i)
             l_i += 1
-        else:  # station in right_stations
-            entries.append(right.iloc[r_i])
-            r_i += 1
 
     # Combine records.
-    join = pd.concat(entries, axis='columns').T.reset_index()
+    join = pd.concat([left.iloc[left_indices], right]).reset_index(drop=True)
 
-    # Update records for stations before the last that the train is EN_ROUTE_TO to STOPPED_OR_SKIPPED.
-    swap_space = join[:len(join) - 1]
+    # Declaring an ordinal categorical column in the stop_id attribute makes `pandas` handle resorting internally and,
+    # hence, results in a significant speedup (over doing so ourselves).
+    join['stop_id'] = pd.Categorical(join['stop_id'], stations, ordered=True)
+
+    # Update records for stations before the first station in the right trip log that the train is EN_ROUTE_TO or
+    # STOPPED_OR_SKIPPED.
+    swap_station = right.iloc[0]['stop_id']
+    swap_index = next(i for i, station in enumerate(stations) if station == swap_station)
+    swap_space = join[:swap_index]
     where_update = swap_space[swap_space['action'] == 'EN_ROUTE_TO'].index.values
 
-    next_entries = join.iloc[[n + 1 for n in where_update]]
     join.loc[where_update, 'action'] = 'STOPPED_OR_SKIPPED'
-    join.loc[where_update, 'maximum_time'] = next_entries['maximum_time']
+    join.loc[where_update, 'maximum_time'] = right.loc[0, 'latest_information_time']
+    join.loc[swap_index, 'minimum_time'] = left.loc[0, 'minimum_time']
 
     return join

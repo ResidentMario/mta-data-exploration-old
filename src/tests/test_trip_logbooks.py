@@ -37,7 +37,5 @@ class SmokeTest(unittest.TestCase):
     def test_smoke(self):
         left_logbook = processing.parse_feeds_into_trip_logbook([self.gtfs_r0], [0])
         right_logbook = processing.parse_feeds_into_trip_logbook([self.gtfs_r1], [1])
-        import pdb; pdb.set_trace()
         result = processing.merge_trip_logbooks([left_logbook, right_logbook])
-        import pdb; pdb.set_trace()
-        # TODO: This takes too long to run! Profile this!
+        assert len(result.keys()) == 421
