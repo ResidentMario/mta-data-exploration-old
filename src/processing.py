@@ -212,14 +212,14 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
         # departure is present in the struct, then we have a forward estimate on when this train will arrive at some
         # other station further down the line (but not at the very end), but at which it *will not stop*. In other
         # words, this indicates that this train is going to skip this stop in its service!
-        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_departure_time:
+        elif trip_in_progress and not n_stops == s_i + 1 and not has_departure_time:
             assert has_arrival_time
 
             struct = np.append(base.copy(), np.array(
                 ['EXPECTED_TO_SKIP', stop_time_update.stop_id, stop_time_update.arrival.time]
             ))
             lines.append(struct)
-        elif trip_in_progress and not stop_is_next_stop and not n_stops == s_i + 1 and not has_arrival_time:
+        elif trip_in_progress and not n_stops == s_i + 1 and not has_arrival_time:
             assert has_departure_time
 
             struct = np.append(base.copy(), np.array(
