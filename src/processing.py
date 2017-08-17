@@ -315,7 +315,6 @@ def parse_message_into_action_log(message, vehicle_update, information_time):
             lines.append(struct)
 
         else:
-            # import pdb; pdb.set_trace()  # useful for debugging
             raise ValueError
 
     action_log = pd.DataFrame(lines, columns=['trip_id', 'route_id', 'information_time', 'action', 'stop_id',
@@ -338,6 +337,11 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
     key_data = all_data.groupby('information_time').first().reset_index()
     current_information_time = None
 
+    # The following bookkeeping is used to assign the *next* information time in the case of a STOPPED_AT.
+    information_times = sorted(list(set(all_data['information_time'])))
+    next_information_time_index = 1
+    next_information_time = information_times[1] if len(information_times) > 1 else np.nan
+
     # To understand what went on during a trip, we only need to have a list of touched stops, the rows corresponding
     # with the first action in each observation's action sublog, and the time that has passed in between the sublog
     # entries.
@@ -355,6 +359,15 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
 
         previous_information_time = current_information_time if current_information_time is not None else np.nan
         current_information_time = row['information_time']
+
+        # Do bookkeeping to keep track of the next information time for use by STOPPED_AT records.
+        if current_information_time == next_information_time:
+            next_information_time_index += 1
+            try:
+                next_information_time = information_times[next_information_time_index]
+            except IndexError:  # end of the record
+                next_information_time = np.nan
+
         current_stop = row['stop_id']
 
         i_del = 0
@@ -370,7 +383,7 @@ def parse_tripwise_action_logs_into_trip_log(tripwise_action_logs):
             else:
                 if row['action'] == 'STOPPED_AT':
                     stopped_stop = np.append(base.copy(), np.array(
-                        ['STOPPED_AT', previous_information_time, current_information_time,
+                        ['STOPPED_AT', previous_information_time, next_information_time,
                          row['stop_id'], current_information_time]
                     ))
                     lines.append(stopped_stop)
@@ -637,5 +650,37 @@ def _join_trip_logs(left, right):
     join.loc[where_update, 'action'] = 'STOPPED_OR_SKIPPED'
     join.loc[where_update, 'maximum_time'] = right.loc[0, 'latest_information_time']
     join.loc[swap_index, 'minimum_time'] = left.loc[0, 'minimum_time']
+
+    # Hard-case the columns to float so as to avoid weird typing issues that keep coming up.
+    # TODO: Hard-fix the typing issues and simplify the tests to reflect.
+    join.loc[:, ['minimum_time', 'maximum_time']] = join.loc[:, ['minimum_time', 'maximum_time']].astype(float)
+
+    # The second trip update may on the first index contain incomplete minimum time information due to not having a
+    # reference to a previous trip update included in that trip log's generative action log set. There are a number
+    # of ways in which this can occur, but the end fact of the matter is that between the last entry in the first
+    # trip log and the first entry in the second trip log, we may have one of three different inconsistencies:
+    #
+    # 1. The prior states that the train stopped at (or skipped) the last station in that log at some known time,
+    #    but the minimum time of the first stop or skip in the posterior log is a NaN, due to lack of prior information.
+    # 2. The prior states that the train stopped at (or skipped) the last station in that log at some known minimum
+    #    time, but the posterior log first entry minimum time is even earlier.
+    # 3. The prior states that the train stopped at (or skipped) the last station in that log at some known maximum
+    #    time, but the posterior log first entry minimum time is even earlier.
+    #
+    # The lines below handle each one of these possible inconsistencies in turn.
+    join.loc[:, 'minimum_time'] = join.loc[:, 'minimum_time'].fillna(method='ffill')
+    join.loc[1:, 'minimum_time'] = np.maximum.accumulate(join.loc[1:, 'minimum_time'].values)
+
+    join.loc[len(left) -1, 'minimum_time'] = np.maximum(np.nan_to_num(join.loc[len(left) - 2, 'maximum_time']),
+                                                        join.loc[len(left) - 1, 'minimum_time'])
+
+    # Again at the location of the join, we may also get an incomplete `maximum_time` entry, for the same reason. In
+    # this case we will take the `maximum_time` of the following entry. However, note that we are *losing
+    # information* in this case, as we could technically resolve this time to a more accurate one, given the full
+    # list of information times. However, we do not have that information at this time in the processing sequence.
+    # This is an unfortunate but not particularly important, all things considered, technical shortcoming of the way
+    # we chose to code things.
+
+    join.loc[:, 'maximum_time'] = join.loc[:, 'maximum_time'].fillna(method='bfill', limit=1)
 
     return join
