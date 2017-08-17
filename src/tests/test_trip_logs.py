@@ -48,7 +48,7 @@ class UnaryTests(unittest.TestCase):
 
         assert len(result) == 1
         assert result.iloc[0].action == 'STOPPED_AT'
-        assert all([int(result.iloc[0]['maximum_time']) == 0, str(result.iloc[0]['minimum_time']) == 'nan',
+        assert all([str(result.iloc[0]['maximum_time']) == 'nan', str(result.iloc[0]['minimum_time']) == 'nan',
                     int(result.iloc[0]['latest_information_time']) == 0])
 
     def test_unary_en_route(self):
@@ -149,7 +149,7 @@ class UnaryTests(unittest.TestCase):
         assert len(result) == 2
         assert list(result['action'].values) == ['STOPPED_AT', 'EN_ROUTE_TO']
         assert list(result['minimum_time'].values.astype(str)) == ['nan', '0']
-        assert list(result['maximum_time'].values.astype(str)) == ['0', 'nan']
+        assert list(result['maximum_time'].values.astype(str)) == ['nan', 'nan']
 
 
 class BinaryTests(unittest.TestCase):
@@ -198,7 +198,7 @@ class BinaryTests(unittest.TestCase):
         assert len(result) == 1
         assert list(result['action'].values) == ['STOPPED_AT']
         assert list(result['minimum_time'].values.astype(int)) == [0]
-        assert list(result['maximum_time'].values.astype(int)) == [1]
+        assert list(result['maximum_time'].values.astype(str)) == ['nan']
 
     def test_binary_stop_or_skip_en_route(self):
         """
@@ -265,7 +265,7 @@ class BinaryTests(unittest.TestCase):
         assert len(result) == 2
         assert list(result['action'].values) == ['STOPPED_OR_SKIPPED', 'STOPPED_AT']
         assert list(result['minimum_time'].values.astype(int)) == [0, 0]
-        assert list(result['maximum_time'].values.astype(int)) == [1, 1]
+        assert list(result['maximum_time'].values.astype(str)) == ['1', 'nan']
 
 
 class FinalizationTests(unittest.TestCase):
