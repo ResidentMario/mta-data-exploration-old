@@ -48,6 +48,14 @@ def _parse_message_list_into_action_log(messages, information_time):
     """
     Parses a list of messages into a single pandas.DataFrame
     """
+    try:
+        if messages[0].vehicle.trip.trip_id == "147200_1..N02X017":
+            import pdb; pdb.set_trace()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except:
+        pass
+
     actions_list = []
     # action_log = pd.DataFrame(columns=['trip_id', 'route_id', 'action', 'stop_id', 'time_assigned'])
 
